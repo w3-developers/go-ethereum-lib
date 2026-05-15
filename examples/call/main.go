@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	ethlib "github.com/snakoner/go-ethereum-lib"
+	ethlib "github.com/w3-developers/go-ethereum-lib"
 )
 
 type EthereumBlockchain struct {

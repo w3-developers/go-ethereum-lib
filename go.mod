@@ -1,4 +1,4 @@
-module github.com/snakoner/go-ethereum-lib
+module github.com/w3-developers/go-ethereum-lib
 
 go 1.24.0
 
