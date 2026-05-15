@@ -9,7 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
-	ethlib "github.com/snakoner/go-ethereum-lib"
+	ethlib "github.com/w3-developers/go-ethereum-lib"
 )
 
 const (
