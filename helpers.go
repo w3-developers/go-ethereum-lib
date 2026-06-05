@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -437,4 +438,8 @@ func TopicToAddress(topic string) (string, error) {
 	}
 
 	return common.HexToAddress(topic[len(topic)-40:]).Hex(), nil
+}
+
+func EventTopic(signature string) string {
+	return crypto.Keccak256Hash([]byte(signature)).Hex()
 }
