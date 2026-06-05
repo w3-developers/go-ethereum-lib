@@ -22,7 +22,7 @@ func (c *Client) EstimateGas(ctx context.Context, callObj map[string]interface{}
 		return nil, err
 	}
 
-	return parseHexBigInt(gasHex)
+	return ParseHexBigInt(gasHex)
 }
 
 func (c *Client) GetNonce(ctx context.Context, account string) (*big.Int, error) {
@@ -30,7 +30,7 @@ func (c *Client) GetNonce(ctx context.Context, account string) (*big.Int, error)
 	if err := c.rpcCall(ctx, "eth_getTransactionCount", []interface{}{account, "pending"}, &nonceHex); err != nil {
 		return nil, err
 	}
-	return parseHexBigInt(nonceHex)
+	return ParseHexBigInt(nonceHex)
 }
 
 func (c *Client) GetGasPrice(ctx context.Context) (*big.Int, error) {
@@ -39,7 +39,7 @@ func (c *Client) GetGasPrice(ctx context.Context) (*big.Int, error) {
 		return nil, err
 	}
 
-	gasPrice, err := parseHexBigInt(gasPriceHex)
+	gasPrice, err := ParseHexBigInt(gasPriceHex)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (c *Client) getCurrentBlock(ctx context.Context) (*big.Int, error) {
 		return nil, err
 	}
 
-	return parseHexBigInt(blockHex)
+	return ParseHexBigInt(blockHex)
 }
 
 func (c *Client) getBlock(ctx context.Context) (string, error) {
@@ -111,7 +111,7 @@ func (c *Client) rpcCall(ctx context.Context, method string, params []interface{
 	return json.Unmarshal(rpcResp.Result, out)
 }
 
-func parseHexBigInt(hexStr string) (*big.Int, error) {
+func ParseHexBigInt(hexStr string) (*big.Int, error) {
 	if len(hexStr) >= 2 && hexStr[0:2] == "0x" {
 		hexStr = hexStr[2:]
 	}
@@ -420,4 +420,21 @@ func float64ToRational(value float64) (*big.Int, *big.Int) {
 
 func IsZeroAddress(address string) bool {
 	return common.HexToAddress(address) == common.HexToAddress("0x0000000000000000000000000000000000000000")
+}
+
+func Uint64ToHex(n uint64) string {
+	return fmt.Sprintf("0x%x", n)
+}
+
+func BigIntToHex(n *big.Int) string {
+	return fmt.Sprintf("0x%x", n)
+}
+
+func TopicToAddress(topic string) string {
+	topic = trim0x(topic)
+	if len(topic) < 40 {
+		return common.Address{}.Hex()
+	}
+
+	return common.HexToAddress(topic[len(topic)-40:]).Hex()
 }
