@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	sepoliaRPCURL           = "https://eth-sepolia.g.alchemy.com/v2/<api-key>"
+	sepoliaRPCURL           = "https://eth-sepolia-testnet.api.pocket.network"
 	sepoliaMulticallAddress = "0xcA11bde05977b3631167028862bE2a173976CA11"
 )
 
@@ -22,6 +22,10 @@ func UUIDToBytes32(id uuid.UUID) [32]byte {
 	copy(out[:16], id[:])
 	return out
 }
+
+var transferEventTopic = crypto.Keccak256Hash(
+	[]byte("Transfer(address,address,uint256)"),
+).Hex()
 
 func main() {
 	// contractAddress := "0x4710fCb1e83bd593f734A6a4910A66DF3d940c5C"
@@ -54,6 +58,31 @@ func main() {
 		sepoliaMulticallAddress,
 	)
 
+	logs, err := client.GetLogs(context.Background(), tokenAddress, big.NewInt(10813315), big.NewInt(10813315), []string{transferEventTopic})
+	if err != nil {
+		log.Fatal("failed to get logs: %w", err)
+	}
+
+	for _, l := range logs {
+		fromAddress, err := ethlib.TopicToAddress(l.Topics[1])
+		if err != nil {
+			log.Fatal("failed to get logs: ", err)
+		}
+
+		toAddress, err := ethlib.TopicToAddress(l.Topics[2])
+		if err != nil {
+			log.Fatal("failed to get to address: ", err)
+		}
+
+		amount, err := ethlib.ParseHexBigInt(l.Data)
+		if err != nil {
+			log.Fatal("failed to parse amount: ", err)
+		}
+
+		fmt.Printf("from: %s, to: %s, amount: %s\n", fromAddress, toAddress, amount)
+	}
+
+	return
 	solidClient := ethlib.New(
 		sepoliaRPCURL,
 		sepoliaMulticallAddress,
@@ -177,4 +206,14 @@ func TransferTokensWithNative(
 	}
 
 	return client.SendRawTransaction(context.Background(), "0x"+hex.EncodeToString(rawBytes))
+}
+
+func GetLogs(
+	client *ethlib.Client,
+	address string,
+	fromBlock *big.Int,
+	toBlock *big.Int,
+	topics []string,
+) ([]ethlib.Log, error) {
+	return client.GetLogs(context.Background(), address, fromBlock, toBlock, topics)
 }
