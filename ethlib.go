@@ -101,7 +101,7 @@ func (c *Client) BalanceAt(ctx context.Context, address string) (*big.Int, error
 		return nil, err
 	}
 
-	return parseHexBigInt(result)
+	return ParseHexBigInt(result)
 }
 
 func (c *Client) BalanceOf(ctx context.Context, tokenAddress string, address string) (*big.Int, error) {
@@ -125,7 +125,7 @@ func (c *Client) BalanceOf(ctx context.Context, tokenAddress string, address str
 		return nil, err
 	}
 
-	return parseHexBigInt(result)
+	return ParseHexBigInt(result)
 }
 
 func (c *Client) SendRawTransaction(ctx context.Context, rawHex string) (string, error) {
@@ -147,7 +147,7 @@ func (c *Client) GetChainID(ctx context.Context) (*big.Int, error) {
 		return nil, err
 	}
 
-	return parseHexBigInt(chainIDHex)
+	return ParseHexBigInt(chainIDHex)
 }
 
 func (c *Client) TransferNative(ctx context.Context, to string, amount *big.Int, privateKey string) (string, error) {
@@ -359,7 +359,7 @@ func (c *Client) WaitForStatusSuccess(
 				continue
 			}
 
-			statusBig, err := parseHexBigInt(receipt.Status)
+			statusBig, err := ParseHexBigInt(receipt.Status)
 			if err != nil {
 				return err
 			}
@@ -651,4 +651,21 @@ func (c *Client) Multicall(
 	}
 
 	return out, nil
+}
+
+func (c *Client) GetLatestBlockNumber(ctx context.Context) (*big.Int, error) {
+	return c.getCurrentBlock(ctx)
+}
+
+func (c *Client) GetSafeBlockNumber(ctx context.Context) (*big.Int, error) {
+	latest, err := c.GetLatestBlockNumber(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.confirmations <= 0 {
+		return latest, nil
+	}
+
+	return new(big.Int).Sub(latest, big.NewInt(c.confirmations)), nil
 }
