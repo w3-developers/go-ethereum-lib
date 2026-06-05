@@ -430,11 +430,11 @@ func BigIntToHex(n *big.Int) string {
 	return fmt.Sprintf("0x%x", n)
 }
 
-func TopicToAddress(topic string) string {
+func TopicToAddress(topic string) (string, error) {
 	topic = trim0x(topic)
 	if len(topic) < 40 {
-		return common.Address{}.Hex()
+		return "", fmt.Errorf("topic is too short: %s", topic)
 	}
 
-	return common.HexToAddress(topic[len(topic)-40:]).Hex()
+	return common.HexToAddress(topic[len(topic)-40:]).Hex(), nil
 }
