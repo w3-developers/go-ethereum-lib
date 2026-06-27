@@ -6,6 +6,12 @@ const (
 	getEthBalanceSignature = "getEthBalance(address)"
 )
 
+const (
+	TransactionStatusPending = "pending"
+	TransactionStatusSuccess = "success"
+	TransactionStatusFailed  = "failed"
+)
+
 const multicall3Aggregate3ABI = `[
 	{
 		"inputs": [

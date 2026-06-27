@@ -329,6 +329,69 @@ func (c *Client) TransferToken(
 	return txHashHex, nil
 }
 
+func (c *Client) GetTransactionStatus(
+	ctx context.Context,
+	txHash string,
+) (string, error) {
+	var receipt struct {
+		Status string `json:"status"`
+	}
+
+	err := c.rpcCall(ctx, "eth_getTransactionReceipt", []any{txHash}, &receipt)
+	if err != nil {
+		return "", err
+	}
+
+	if receipt.Status == "" {
+		return TransactionStatusPending, nil
+	}
+
+	statusBig, err := ParseHexBigInt(receipt.Status)
+	if err != nil {
+		return "", fmt.Errorf("parse transaction status: %w", err)
+	}
+
+	switch statusBig.Uint64() {
+	case 1:
+		return TransactionStatusSuccess, nil
+	case 0:
+		return TransactionStatusFailed, nil
+	default:
+		return "", fmt.Errorf("unexpected transaction status: %s", receipt.Status)
+	}
+}
+
+func (c *Client) WaitForTransactionStatus(
+	ctx context.Context,
+	txHash string,
+	maxWaitTime time.Duration,
+) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, maxWaitTime)
+	defer cancel()
+
+	ticker := time.NewTicker(pollingInterval)
+	defer ticker.Stop()
+
+	for {
+		status, err := c.GetTransactionStatus(ctx, txHash)
+		if err == nil {
+			switch status {
+			case TransactionStatusSuccess, TransactionStatusFailed:
+				return status, nil
+			case TransactionStatusPending:
+			default:
+				return "", fmt.Errorf("unexpected transaction status: %s", status)
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return TransactionStatusPending, fmt.Errorf("wait transaction timeout: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func (c *Client) WaitForStatusSuccess(
 	ctx context.Context,
 	txHash string,
