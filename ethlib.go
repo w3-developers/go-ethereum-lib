@@ -361,11 +361,11 @@ func (c *Client) GetTransactionStatus(
 	}
 }
 
-func (c *Client) WaitForTransactionSuccess(
+func (c *Client) WaitForTransactionStatus(
 	ctx context.Context,
 	txHash string,
 	maxWaitTime time.Duration,
-) error {
+) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, maxWaitTime)
 	defer cancel()
 
@@ -373,25 +373,20 @@ func (c *Client) WaitForTransactionSuccess(
 	defer ticker.Stop()
 
 	for {
-		// if rpc call fails, we continue waiting
 		status, err := c.GetTransactionStatus(ctx, txHash)
 		if err == nil {
 			switch status {
-			case TransactionStatusSuccess:
-				return nil
-
-			case TransactionStatusFailed:
-				return fmt.Errorf("transaction failed: %s", txHash)
-
+			case TransactionStatusSuccess, TransactionStatusFailed:
+				return status, nil
 			case TransactionStatusPending:
 			default:
-				return fmt.Errorf("unexpected transaction status: %s", status)
+				return "", fmt.Errorf("unexpected transaction status: %s", status)
 			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait transaction timeout: %w", ctx.Err())
+			return TransactionStatusPending, fmt.Errorf("wait transaction timeout: %w", ctx.Err())
 		case <-ticker.C:
 		}
 	}
