@@ -441,9 +441,10 @@ func (c *Client) BalanceOfMulticall(
 	tokenAddress string,
 	accounts []string,
 ) ([]*big.Int, error) {
+	const fn = "BalanceOfMulticall"
 	parsedABI, err := abi.JSON(strings.NewReader(multicall3Aggregate3ABI))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: parse ABI: %w", fn, err)
 	}
 
 	type call3 struct {
@@ -456,11 +457,11 @@ func (c *Client) BalanceOfMulticall(
 	for _, account := range accounts {
 		callDataStr, err := BuildETHFunctionData(balanceOfSignature, account)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: build ETH function data: %w", fn, err)
 		}
 		callDataBytes, err := hex.DecodeString(trim0x(callDataStr))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: decode hex string: %s: %w", fn, callDataStr, err)
 		}
 
 		calls = append(calls, call3{
@@ -472,7 +473,7 @@ func (c *Client) BalanceOfMulticall(
 
 	data, err := parsedABI.Pack("aggregate3", calls)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: pack aggregate3: %w", fn, err)
 	}
 
 	callObj := map[string]interface{}{
@@ -482,17 +483,17 @@ func (c *Client) BalanceOfMulticall(
 
 	blockTag, err := c.getBlock(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: get block: %w", fn, err)
 	}
 
 	var resultHex string
 	if err := c.rpcCall(ctx, "eth_call", []interface{}{callObj, blockTag}, &resultHex); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: rpc call: %w", fn, err)
 	}
 
 	resBytes, err := hex.DecodeString(trim0x(resultHex))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: decode hex string: %s: %w", fn, resultHex, err)
 	}
 
 	var results []struct {
@@ -500,13 +501,13 @@ func (c *Client) BalanceOfMulticall(
 		ReturnData []byte
 	}
 	if err := parsedABI.UnpackIntoInterface(&results, "aggregate3", resBytes); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: unpack into interface: %w", fn, err)
 	}
 
 	balances := make([]*big.Int, len(results))
 	for i, r := range results {
 		if !r.Success {
-			return nil, fmt.Errorf("failed to get balance of %s", accounts[i])
+			return nil, fmt.Errorf("%s: failed to get balance of %s", fn, accounts[i])
 		}
 
 		out := new(big.Int).SetBytes(r.ReturnData[len(r.ReturnData)-32:])
@@ -520,9 +521,10 @@ func (c *Client) BalanceAtMulticall(
 	ctx context.Context,
 	accounts []string,
 ) ([]*big.Int, error) {
+	const fn = "BalanceAtMulticall"
 	parsedABI, err := abi.JSON(strings.NewReader(multicall3Aggregate3ABI))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: parse ABI: %w", fn, err)
 	}
 
 	type call3 struct {
@@ -535,12 +537,12 @@ func (c *Client) BalanceAtMulticall(
 	for _, account := range accounts {
 		callDataStr, err := BuildETHFunctionData("getEthBalance(address)", account)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: build ETH function data: %w", fn, err)
 		}
 
 		callDataBytes, err := hex.DecodeString(trim0x(callDataStr))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: decode hex string: %s: %w", fn, callDataStr, err)
 		}
 
 		calls = append(calls, call3{
@@ -552,7 +554,7 @@ func (c *Client) BalanceAtMulticall(
 
 	data, err := parsedABI.Pack("aggregate3", calls)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: pack aggregate3: %w", fn, err)
 	}
 
 	callObj := map[string]interface{}{
@@ -562,17 +564,17 @@ func (c *Client) BalanceAtMulticall(
 
 	blockTag, err := c.getBlock(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: get block: %w", fn, err)
 	}
 
 	var resultHex string
 	if err := c.rpcCall(ctx, "eth_call", []interface{}{callObj, blockTag}, &resultHex); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: rpc call: %w", fn, err)
 	}
 
 	resBytes, err := hex.DecodeString(trim0x(resultHex))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: decode hex string: %s: %w", fn, resultHex, err)
 	}
 
 	var results []struct {
@@ -580,13 +582,13 @@ func (c *Client) BalanceAtMulticall(
 		ReturnData []byte
 	}
 	if err := parsedABI.UnpackIntoInterface(&results, "aggregate3", resBytes); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: unpack into interface: %w", fn, err)
 	}
 
 	balances := make([]*big.Int, len(results))
 	for i, r := range results {
 		if !r.Success {
-			return nil, fmt.Errorf("failed to get native balance of %s", accounts[i])
+			return nil, fmt.Errorf("%s: failed to get native balance of %s", fn, accounts[i])
 		}
 
 		out := new(big.Int).SetBytes(r.ReturnData[len(r.ReturnData)-32:])
