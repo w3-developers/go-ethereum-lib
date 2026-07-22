@@ -150,7 +150,7 @@ func (c *Client) GetChainID(ctx context.Context) (*big.Int, error) {
 	return ParseHexBigInt(chainIDHex)
 }
 
-func (c *Client) TransferNative(ctx context.Context, to string, amount *big.Int, privateKey string) (string, error) {
+func (c *Client) TransferNative(ctx context.Context, to string, amount *big.Int, privateKey string, nonce *big.Int) (string, error) {
 	privKey, err := crypto.HexToECDSA(trim0x(privateKey))
 	if err != nil {
 		return "", err
@@ -158,9 +158,11 @@ func (c *Client) TransferNative(ctx context.Context, to string, amount *big.Int,
 
 	from := crypto.PubkeyToAddress(privKey.PublicKey)
 
-	nonce, err := c.GetNonce(ctx, from.Hex())
-	if err != nil {
-		return "", err
+	if nonce == nil {
+		nonce, err = c.GetNonce(ctx, from.Hex())
+		if err != nil {
+			return "", err
+		}
 	}
 
 	gasPrice, err := c.GetGasPrice(ctx)
@@ -186,12 +188,7 @@ func (c *Client) TransferNative(ctx context.Context, to string, amount *big.Int,
 		return "", err
 	}
 
-	txHash, err := c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
-	if err != nil {
-		return "", err
-	}
-
-	return txHash, nil
+	return c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
 }
 
 func (c *Client) SignTx(
@@ -200,6 +197,7 @@ func (c *Client) SignTx(
 	to string,
 	privKey string,
 	gasLimit uint64,
+	nonce *big.Int,
 ) (*types.Transaction, error) {
 	privECDSA, err := crypto.HexToECDSA(trim0x(privKey))
 	if err != nil {
@@ -213,9 +211,11 @@ func (c *Client) SignTx(
 		return nil, err
 	}
 
-	nonce, err := c.GetNonce(ctx, from.Hex())
-	if err != nil {
-		return nil, err
+	if nonce == nil {
+		nonce, err = c.GetNonce(ctx, from.Hex())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	gasPrice, err := c.GetGasPrice(ctx)
@@ -253,6 +253,7 @@ func (c *Client) TransferToken(
 	privateKey string,
 	gasPrice *big.Int,
 	gasLimit *big.Int,
+	nonce *big.Int,
 ) (string, error) {
 	privKey, err := crypto.HexToECDSA(trim0x(privateKey))
 	if err != nil {
@@ -286,9 +287,11 @@ func (c *Client) TransferToken(
 		}
 	}
 
-	nonce, err := c.GetNonce(ctx, from.Hex())
-	if err != nil {
-		return "", err
+	if nonce == nil {
+		nonce, err = c.GetNonce(ctx, from.Hex())
+		if err != nil {
+			return "", err
+		}
 	}
 
 	txBytes, err := hex.DecodeString(trim0x(data))
@@ -320,13 +323,7 @@ func (c *Client) TransferToken(
 		return "", err
 	}
 
-	rawHex := "0x" + hex.EncodeToString(rawBytes)
-	var txHashHex string
-	if err := c.rpcCall(ctx, "eth_sendRawTransaction", []interface{}{rawHex}, &txHashHex); err != nil {
-		return "", err
-	}
-
-	return txHashHex, nil
+	return c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
 }
 
 func (c *Client) GetTransactionStatus(

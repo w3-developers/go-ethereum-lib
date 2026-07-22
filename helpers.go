@@ -31,6 +31,7 @@ func (c *Client) GetNonce(ctx context.Context, account string) (*big.Int, error)
 	if err := c.rpcCall(ctx, "eth_getTransactionCount", []interface{}{account, "pending"}, &nonceHex); err != nil {
 		return nil, err
 	}
+
 	return ParseHexBigInt(nonceHex)
 }
 
