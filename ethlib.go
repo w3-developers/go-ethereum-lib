@@ -150,7 +150,14 @@ func (c *Client) GetChainID(ctx context.Context) (*big.Int, error) {
 	return ParseHexBigInt(chainIDHex)
 }
 
-func (c *Client) TransferNative(ctx context.Context, to string, amount *big.Int, privateKey string, nonce *big.Int) (string, error) {
+func (c *Client) TransferNative(
+	ctx context.Context,
+	to string,
+	amount *big.Int,
+	privateKey string,
+	gasPrice *big.Int,
+	nonce *big.Int,
+) (string, error) {
 	privKey, err := crypto.HexToECDSA(trim0x(privateKey))
 	if err != nil {
 		return "", err
@@ -165,9 +172,11 @@ func (c *Client) TransferNative(ctx context.Context, to string, amount *big.Int,
 		}
 	}
 
-	gasPrice, err := c.GetGasPrice(ctx)
-	if err != nil {
-		return "", err
+	if gasPrice == nil {
+		gasPrice, err = c.GetGasPrice(ctx)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	chainID, err := c.GetChainID(ctx)
