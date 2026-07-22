@@ -2,218 +2,92 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
+	"sync"
+	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/google/uuid"
 	ethlib "github.com/w3-developers/go-ethereum-lib"
 )
 
 const (
-	sepoliaRPCURL           = "https://eth-sepolia-testnet.api.pocket.network"
-	sepoliaMulticallAddress = "0xcA11bde05977b3631167028862bE2a173976CA11"
+	sepoliaRPCURL = "https://eth-sepolia-testnet.api.pocket.network"
 )
 
-func UUIDToBytes32(id uuid.UUID) [32]byte {
-	var out [32]byte
-	copy(out[:16], id[:])
-	return out
-}
-
-var transferEventTopic = crypto.Keccak256Hash(
-	[]byte("Transfer(address,address,uint256)"),
-).Hex()
-
 func main() {
-	// contractAddress := "0x4710fCb1e83bd593f734A6a4910A66DF3d940c5C"
-	// fromPrivateKey := "e230e23c4cd059377fa1d4cea5e83ed95acdf2faa49cca063a59326067199425"
-	tokenAddress := "0xC55d61E9c41432eE19Ca0a823A82F1ef15998E58"
+	contractAddress := "0xC55d61E9c41432eE19Ca0a823A82F1ef15998E58"
+	fromPrivateKey := "<>"
+	toAddress := "0x915F48a53E93DFcC973254cAa9c5f252Ccd609Cb"
 
-	generatedPrivateKey, generatedAddress, err := ethlib.GenerateAddress()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("Generated address:", generatedAddress)
-	fmt.Println("Generated private key:", generatedPrivateKey)
-
-	address, err := ethlib.PrivateKeyToAddress(generatedPrivateKey)
+	fromAddress, err := ethlib.PrivateKeyToAddress(fromPrivateKey)
 	if err != nil {
 		log.Fatal(fmt.Errorf("failed to get address from private key: %w", err))
 	}
 
-	if !ethlib.ValidateAddress(address) {
-		log.Fatal("invalid address")
-	}
-
-	if address != generatedAddress {
-		log.Fatal("generated address mismatch")
-	}
-
 	client := ethlib.New(
 		sepoliaRPCURL,
-		sepoliaMulticallAddress,
+		"0xcA11bde05977b3631167028862bE2a173976CA11",
+		ethlib.WithGasBoost(1.4),
 	)
 
-	logs, err := client.GetLogs(context.Background(), tokenAddress, big.NewInt(10813315), big.NewInt(10813315), []string{transferEventTopic})
+	nonce, err := client.GetNonce(context.Background(), fromAddress)
 	if err != nil {
-		log.Fatal("failed to get logs: %w", err)
+		log.Fatal(fmt.Errorf("failed to get nonce: %w", err))
 	}
 
-	for _, l := range logs {
-		fromAddress, err := ethlib.TopicToAddress(l.Topics[1])
-		if err != nil {
-			log.Fatal("failed to get logs: ", err)
-		}
-
-		toAddress, err := ethlib.TopicToAddress(l.Topics[2])
-		if err != nil {
-			log.Fatal("failed to get to address: ", err)
-		}
-
-		amount, err := ethlib.ParseHexBigInt(l.Data)
-		if err != nil {
-			log.Fatal("failed to parse amount: ", err)
-		}
-
-		fmt.Printf("from: %s, to: %s, amount: %s\n", fromAddress, toAddress, amount)
-	}
-
-	return
-	solidClient := ethlib.New(
-		sepoliaRPCURL,
-		sepoliaMulticallAddress,
-		ethlib.WithConfirmations(5),
-		ethlib.WithGasBoost(1.11),
-	)
-
-	balancesOf, err := client.BalanceOfMulticall(
+	txHash1, err := client.TransferToken(
 		context.Background(),
-		tokenAddress,
-		[]string{
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-		},
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	balancesSolidOf, err := solidClient.BalanceOfMulticall(
-		context.Background(),
-		tokenAddress,
-		[]string{
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-		},
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(balancesOf)
-	fmt.Println(balancesSolidOf)
-
-	/*
-		txHash, err := client.TransferToken(
-			context.Background(),
-			tokenAddress,
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			big.NewInt(1000000),
-			fromPrivateKey,
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Println(txHash)
-	*/
-
-	/*
-		txHash, err := TransferTokensWithNative(
-			client,
-			fromPrivateKey,
-			contractAddress,
-			UUIDToBytes32(uuid.New()),
-			"0x455E5AA18469bC6ccEF49594645666C587A3a71B",
-			big.NewInt(1000000),
-			big.NewInt(1000000),
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		err = client.WaitForStatusSuccess(context.Background(), txHash, 30*time.Second)
-		if err != nil {
-			log.Fatal(err)
-		}
-	*/
-}
-
-func TransferTokensWithNative(
-	client *ethlib.Client,
-	fromPrivateKey string,
-	contractAddress string,
-	transactionID [32]byte,
-	toAddress string,
-	tokenAmount *big.Int,
-	nativeAmount *big.Int,
-) (string, error) {
-	fromAddressPrivKey, err := crypto.HexToECDSA(fromPrivateKey)
-	if err != nil {
-		return "", err
-	}
-
-	fromAddress := crypto.PubkeyToAddress(fromAddressPrivKey.PublicKey)
-
-	callData, err := ethlib.BuildETHFunctionData(
-		"transferTokensWithNative(bytes32,address,uint256,uint256)",
-		transactionID,
+		contractAddress,
 		toAddress,
-		tokenAmount,
-		nativeAmount,
+		big.NewInt(10000000),
+		fromPrivateKey,
+		nil,
+		big.NewInt(1000000),
+		nonce,
 	)
 	if err != nil {
-		return "", err
+		log.Fatal(err)
 	}
 
-	callObj := map[string]interface{}{
-		"from": fromAddress.Hex(),
-		"to":   contractAddress,
-		"data": callData,
-	}
+	fmt.Println(txHash1)
 
-	gasLimit, err := client.EstimateGas(context.Background(), callObj)
+	nonce = nonce.Add(nonce, big.NewInt(1))
+
+	txHash2, err := client.TransferToken(
+		context.Background(),
+		contractAddress,
+		toAddress,
+		big.NewInt(10000000),
+		fromPrivateKey,
+		nil,
+		big.NewInt(1000000),
+		nonce,
+	)
 	if err != nil {
-		return "", err
+		log.Fatal(err)
 	}
 
-	signedTx, err := client.SignTx(context.Background(), callData, contractAddress, fromPrivateKey, gasLimit.Uint64())
-	if err != nil {
-		return "", err
-	}
+	fmt.Println(txHash2)
 
-	rawBytes, err := signedTx.MarshalBinary()
-	if err != nil {
-		return "", err
-	}
+	wg := sync.WaitGroup{}
+	wg.Add(2)
 
-	return client.SendRawTransaction(context.Background(), "0x"+hex.EncodeToString(rawBytes))
-}
+	go func() {
+		defer wg.Done()
+		err = client.WaitForStatusSuccess(context.Background(), txHash1, 30*time.Second)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
-func GetLogs(
-	client *ethlib.Client,
-	address string,
-	fromBlock *big.Int,
-	toBlock *big.Int,
-	topics []string,
-) ([]ethlib.Log, error) {
-	return client.GetLogs(context.Background(), address, fromBlock, toBlock, topics)
+	go func() {
+		defer wg.Done()
+		err = client.WaitForStatusSuccess(context.Background(), txHash2, 30*time.Second)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	wg.Wait()
 }
