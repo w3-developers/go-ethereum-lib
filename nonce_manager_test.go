@@ -66,19 +66,51 @@ func TestNonceManagerCaseInsensitiveAndReset(t *testing.T) {
 	}
 }
 
-func TestNonceManagerSelfHealsToChain(t *testing.T) {
+func TestNonceManagerSeedsOncePerAddress(t *testing.T) {
 	nm := NewNonceManager()
 	const addr = "0xdead"
 
-	for want := uint64(0); want < 3; want++ {
-		got, _ := nm.Next(context.Background(), addr, func(ctx context.Context) (uint64, error) { return 0, nil })
+	fetchCount := 0
+	fetch := func(ctx context.Context) (uint64, error) {
+		fetchCount++
+		return 7, nil
+	}
+
+	for want := uint64(7); want < 7+5; want++ {
+		got, err := nm.Next(context.Background(), addr, fetch)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if got != want {
 			t.Fatalf("expected %d, got %d", want, got)
 		}
 	}
+	if fetchCount != 1 {
+		t.Fatalf("expected exactly 1 chain fetch (seed-once), got %d", fetchCount)
+	}
+
+	nm.Reset(addr)
+	got, err := nm.Next(context.Background(), addr, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 7 {
+		t.Fatalf("expected re-seed to 7 after reset, got %d", got)
+	}
+	if fetchCount != 2 {
+		t.Fatalf("expected 2 chain fetches after reset, got %d", fetchCount)
+	}
+}
+
+func TestNonceManagerDoesNotFollowChainWithoutReset(t *testing.T) {
+	nm := NewNonceManager()
+	const addr = "0xdead"
+
+	_, _ = nm.Next(context.Background(), addr, func(ctx context.Context) (uint64, error) { return 0, nil })
+	_, _ = nm.Next(context.Background(), addr, func(ctx context.Context) (uint64, error) { return 0, nil })
 
 	got, _ := nm.Next(context.Background(), addr, func(ctx context.Context) (uint64, error) { return 10, nil })
-	if got != 10 {
-		t.Fatalf("expected self-heal to chain nonce 10, got %d", got)
+	if got != 2 {
+		t.Fatalf("expected local counter 2 (chain ignored until Reset), got %d", got)
 	}
 }

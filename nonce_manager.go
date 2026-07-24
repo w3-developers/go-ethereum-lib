@@ -6,16 +6,20 @@ import (
 	"sync"
 )
 
+type nonceState struct {
+	mu     sync.Mutex
+	next   uint64
+	seeded bool
+}
+
 type NonceManager struct {
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
-	next  map[string]uint64
+	mu     sync.Mutex
+	states map[string]*nonceState
 }
 
 func NewNonceManager() *NonceManager {
 	return &NonceManager{
-		locks: make(map[string]*sync.Mutex),
-		next:  make(map[string]uint64),
+		states: make(map[string]*nonceState),
 	}
 }
 
@@ -23,51 +27,53 @@ func normalizeNonceKey(address string) string {
 	return strings.ToLower(strings.TrimSpace(address))
 }
 
-func (m *NonceManager) lockFor(key string) *sync.Mutex {
+func (m *NonceManager) stateFor(key string) *nonceState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	lock, ok := m.locks[key]
+	state, ok := m.states[key]
 	if !ok {
-		lock = &sync.Mutex{}
-		m.locks[key] = lock
+		state = &nonceState{}
+		m.states[key] = state
 	}
 
-	return lock
+	return state
 }
 
 func (m *NonceManager) Next(
 	ctx context.Context,
 	address string,
-	fetchPending func(ctx context.Context) (uint64, error),
+	fetchPending func(context.Context) (uint64, error),
 ) (uint64, error) {
 	key := normalizeNonceKey(address)
+	state := m.stateFor(key)
 
-	lock := m.lockFor(key)
-	lock.Lock()
-	defer lock.Unlock()
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	chainNonce, err := fetchPending(ctx)
-	if err != nil {
-		return 0, err
+	if !state.seeded {
+		chainNonce, err := fetchPending(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		state.next = chainNonce
+		state.seeded = true
 	}
 
-	m.mu.Lock()
-	local := m.next[key]
-	nonce := local
-	if chainNonce > nonce {
-		nonce = chainNonce
-	}
-	m.next[key] = nonce + 1
-	m.mu.Unlock()
+	nonce := state.next
+	state.next++
 
 	return nonce, nil
 }
 
 func (m *NonceManager) Reset(address string) {
 	key := normalizeNonceKey(address)
+	state := m.stateFor(key)
 
-	m.mu.Lock()
-	delete(m.next, key)
-	m.mu.Unlock()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	state.next = 0
+	state.seeded = false
 }
