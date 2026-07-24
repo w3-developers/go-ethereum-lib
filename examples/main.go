@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	ethlib "github.com/w3-developers/go-ethereum-lib"
 )
@@ -14,6 +17,27 @@ import (
 const (
 	sepoliaRPCURL = "https://eth-sepolia-testnet.api.pocket.network"
 )
+
+func UUIDFromCalldata(calldata string) (uuid.UUID, error) {
+	if len(calldata) >= 2 && calldata[:2] == "0x" {
+		calldata = calldata[2:]
+	}
+	data, err := hex.DecodeString(calldata)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	if len(data) < 4+32 {
+		return uuid.Nil, fmt.Errorf("calldata too short")
+	}
+
+	word := data[len(data)-32:]
+
+	var id uuid.UUID
+	copy(id[:], word[16:])
+
+	return id, nil
+}
 
 func main() {
 	contractAddress := "0xC55d61E9c41432eE19Ca0a823A82F1ef15998E58"
@@ -27,6 +51,15 @@ func main() {
 		ethlib.WithGasBoost(1.4),
 		ethlib.WithNonceManager(nonceManager),
 	)
+
+	input, err := client.GetTransactionInput(context.Background(), "0xd213f9332bfa0c47af35c00bd2a27aaf844314d1856cde489703f39d055fcc55")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(hex.EncodeToString(input))
+	fmt.Println(UUIDFromCalldata(hex.EncodeToString(input)))
 
 	txHash1, err := client.TransferToken(
 		context.Background(),
