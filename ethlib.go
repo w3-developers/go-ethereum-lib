@@ -30,6 +30,7 @@ type Client struct {
 	confirmations    int64
 	gasBoostNum      *big.Int
 	gasBoostDen      *big.Int
+	nonceManager     *NonceManager
 }
 
 func New(
@@ -69,6 +70,34 @@ func WithGasBoost(gasBoost float64) Option {
 	return func(c *Client) {
 		c.gasBoostNum, c.gasBoostDen = float64ToRational(gasBoost)
 	}
+}
+
+func WithNonceManager(nm *NonceManager) Option {
+	return func(c *Client) {
+		c.nonceManager = nm
+	}
+}
+
+func (c *Client) resolveNonce(ctx context.Context, from string, override *big.Int) (*big.Int, error) {
+	if override != nil {
+		return override, nil
+	}
+
+	if c.nonceManager != nil {
+		nonce, err := c.nonceManager.Next(ctx, from, func(ctx context.Context) (uint64, error) {
+			chainNonce, err := c.GetNonce(ctx, from)
+			if err != nil {
+				return 0, err
+			}
+			return chainNonce.Uint64(), nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return new(big.Int).SetUint64(nonce), nil
+	}
+
+	return c.GetNonce(ctx, from)
 }
 
 type rpcRequest struct {
@@ -165,11 +194,9 @@ func (c *Client) TransferNative(
 
 	from := crypto.PubkeyToAddress(privKey.PublicKey)
 
-	if nonce == nil {
-		nonce, err = c.GetNonce(ctx, from.Hex())
-		if err != nil {
-			return "", err
-		}
+	nonce, err = c.resolveNonce(ctx, from.Hex(), nonce)
+	if err != nil {
+		return "", err
 	}
 
 	if gasPrice == nil {
@@ -220,11 +247,9 @@ func (c *Client) SignTx(
 		return nil, err
 	}
 
-	if nonce == nil {
-		nonce, err = c.GetNonce(ctx, from.Hex())
-		if err != nil {
-			return nil, err
-		}
+	nonce, err = c.resolveNonce(ctx, from.Hex(), nonce)
+	if err != nil {
+		return nil, err
 	}
 
 	gasPrice, err := c.GetGasPrice(ctx)
@@ -296,11 +321,9 @@ func (c *Client) TransferToken(
 		}
 	}
 
-	if nonce == nil {
-		nonce, err = c.GetNonce(ctx, from.Hex())
-		if err != nil {
-			return "", err
-		}
+	nonce, err = c.resolveNonce(ctx, from.Hex(), nonce)
+	if err != nil {
+		return "", err
 	}
 
 	txBytes, err := hex.DecodeString(trim0x(data))

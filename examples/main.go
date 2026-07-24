@@ -17,24 +17,16 @@ const (
 
 func main() {
 	contractAddress := "0xC55d61E9c41432eE19Ca0a823A82F1ef15998E58"
-	fromPrivateKey := "<>"
+	fromPrivateKey := ""
 	toAddress := "0x915F48a53E93DFcC973254cAa9c5f252Ccd609Cb"
 
-	fromAddress, err := ethlib.PrivateKeyToAddress(fromPrivateKey)
-	if err != nil {
-		log.Fatal(fmt.Errorf("failed to get address from private key: %w", err))
-	}
-
+	nonceManager := ethlib.NewNonceManager()
 	client := ethlib.New(
 		sepoliaRPCURL,
 		"0xcA11bde05977b3631167028862bE2a173976CA11",
 		ethlib.WithGasBoost(1.4),
+		ethlib.WithNonceManager(nonceManager),
 	)
-
-	nonce, err := client.GetNonce(context.Background(), fromAddress)
-	if err != nil {
-		log.Fatal(fmt.Errorf("failed to get nonce: %w", err))
-	}
 
 	txHash1, err := client.TransferToken(
 		context.Background(),
@@ -44,15 +36,13 @@ func main() {
 		fromPrivateKey,
 		nil,
 		big.NewInt(1000000),
-		nonce,
+		nil,
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	fmt.Println(txHash1)
-
-	nonce = nonce.Add(nonce, big.NewInt(1))
 
 	txHash2, err := client.TransferToken(
 		context.Background(),
@@ -62,7 +52,7 @@ func main() {
 		fromPrivateKey,
 		nil,
 		big.NewInt(1000000),
-		nonce,
+		nil,
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -70,8 +60,24 @@ func main() {
 
 	fmt.Println(txHash2)
 
+	txHash3, err := client.TransferToken(
+		context.Background(),
+		contractAddress,
+		toAddress,
+		big.NewInt(10000000),
+		fromPrivateKey,
+		nil,
+		big.NewInt(1000000),
+		nil,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(txHash3)
+
 	wg := sync.WaitGroup{}
-	wg.Add(2)
+	wg.Add(3)
 
 	go func() {
 		defer wg.Done()
@@ -89,5 +95,42 @@ func main() {
 		}
 	}()
 
+	go func() {
+		defer wg.Done()
+		err = client.WaitForStatusSuccess(context.Background(), txHash3, 30*time.Second)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+
 	wg.Wait()
+
+	clientNoNonceManager := ethlib.New(
+		sepoliaRPCURL,
+		"0xcA11bde05977b3631167028862bE2a173976CA11",
+		ethlib.WithGasBoost(1.4),
+	)
+
+	txHash4, err := clientNoNonceManager.TransferToken(
+		context.Background(),
+		contractAddress,
+		toAddress,
+		big.NewInt(10000000),
+		fromPrivateKey,
+		nil,
+		big.NewInt(1000000),
+		nil,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(txHash4)
+
+	err = clientNoNonceManager.WaitForStatusSuccess(context.Background(), txHash4, 30*time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("All transactions completed successfully")
 }
