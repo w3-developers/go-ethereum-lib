@@ -17,6 +17,8 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+var ErrTransactionNotFound = errors.New("transaction not found")
+
 func (c *Client) EstimateGas(ctx context.Context, callObj map[string]interface{}) (*big.Int, error) {
 	var gasHex string
 	if err := c.rpcCall(ctx, "eth_estimateGas", []interface{}{callObj}, &gasHex); err != nil {
@@ -50,6 +52,26 @@ func (c *Client) GetGasPrice(ctx context.Context) (*big.Int, error) {
 	gasPrice.Div(gasPrice, c.gasBoostDen)
 
 	return gasPrice, nil
+}
+
+func (c *Client) GetTransactionInput(ctx context.Context, txHash string) ([]byte, error) {
+	var tx *struct {
+		Input string `json:"input"`
+	}
+	if err := c.rpcCall(ctx, "eth_getTransactionByHash", []interface{}{txHash}, &tx); err != nil {
+		return nil, err
+	}
+
+	if tx == nil {
+		return nil, ErrTransactionNotFound
+	}
+
+	input, err := hex.DecodeString(trim0x(tx.Input))
+	if err != nil {
+		return nil, fmt.Errorf("decode transaction input: %w", err)
+	}
+
+	return input, nil
 }
 
 func (c *Client) getCurrentBlock(ctx context.Context) (*big.Int, error) {
@@ -103,7 +125,7 @@ func (c *Client) rpcCall(ctx context.Context, method string, params []interface{
 	}
 
 	if rpcResp.Error != nil {
-		return fmt.Errorf("rpc error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
+		return &RPCError{Code: rpcResp.Error.Code, Message: rpcResp.Error.Message}
 	}
 
 	if out == nil {

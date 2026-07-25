@@ -40,36 +40,76 @@ func (m *NonceManager) stateFor(key string) *nonceState {
 	return state
 }
 
-func (m *NonceManager) Next(
+type NonceLease struct {
+	state *nonceState
+	nonce uint64
+	done  bool
+}
+
+func detachedLease(nonce uint64) *NonceLease {
+	return &NonceLease{nonce: nonce}
+}
+
+func (l *NonceLease) Nonce() uint64 {
+	if l == nil {
+		return 0
+	}
+
+	return l.nonce
+}
+
+func (l *NonceLease) Commit() {
+	if l == nil || l.done {
+		return
+	}
+	l.done = true
+
+	if l.state == nil {
+		return
+	}
+
+	l.state.next = l.nonce + 1
+	l.state.mu.Unlock()
+}
+
+func (l *NonceLease) Rollback() {
+	if l == nil || l.done {
+		return
+	}
+	l.done = true
+
+	if l.state == nil {
+		return
+	}
+
+	l.state.mu.Unlock()
+}
+
+func (m *NonceManager) Acquire(
 	ctx context.Context,
 	address string,
 	fetchPending func(context.Context) (uint64, error),
-) (uint64, error) {
-	key := normalizeNonceKey(address)
-	state := m.stateFor(key)
+) (*NonceLease, error) {
+	state := m.stateFor(normalizeNonceKey(address))
 
 	state.mu.Lock()
-	defer state.mu.Unlock()
 
 	if !state.seeded {
 		chainNonce, err := fetchPending(ctx)
 		if err != nil {
-			return 0, err
+			state.mu.Unlock()
+			return nil, err
 		}
 
 		state.next = chainNonce
 		state.seeded = true
 	}
 
-	nonce := state.next
-	state.next++
-
-	return nonce, nil
+	return &NonceLease{state: state, nonce: state.next}, nil
 }
 
 func (m *NonceManager) Reset(address string) {
-	key := normalizeNonceKey(address)
-	state := m.stateFor(key)
+	state := m.stateFor(normalizeNonceKey(address))
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
