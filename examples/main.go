@@ -41,7 +41,7 @@ func UUIDFromCalldata(calldata string) (uuid.UUID, error) {
 
 func main() {
 	contractAddress := "0xC55d61E9c41432eE19Ca0a823A82F1ef15998E58"
-	fromPrivateKey := ""
+	fromPrivateKey := "e230e23c4cd059377fa1d4cea5e83ed95acdf2faa49cca063a59326067199425"
 	toAddress := "0x915F48a53E93DFcC973254cAa9c5f252Ccd609Cb"
 
 	nonceManager := ethlib.NewNonceManager()

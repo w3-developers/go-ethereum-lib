@@ -78,26 +78,28 @@ func WithNonceManager(nm *NonceManager) Option {
 	}
 }
 
-func (c *Client) resolveNonce(ctx context.Context, from string, override *big.Int) (*big.Int, error) {
+func (c *Client) acquireNonce(ctx context.Context, from string, override *big.Int) (*NonceLease, error) {
 	if override != nil {
-		return override, nil
+		return detachedLease(override.Uint64()), nil
 	}
 
-	if c.nonceManager != nil {
-		nonce, err := c.nonceManager.Next(ctx, from, func(ctx context.Context) (uint64, error) {
-			chainNonce, err := c.GetNonce(ctx, from)
-			if err != nil {
-				return 0, err
-			}
-			return chainNonce.Uint64(), nil
-		})
+	if c.nonceManager == nil {
+		chainNonce, err := c.GetNonce(ctx, from)
 		if err != nil {
 			return nil, err
 		}
-		return new(big.Int).SetUint64(nonce), nil
+
+		return detachedLease(chainNonce.Uint64()), nil
 	}
 
-	return c.GetNonce(ctx, from)
+	return c.nonceManager.Acquire(ctx, from, func(ctx context.Context) (uint64, error) {
+		chainNonce, err := c.GetNonce(ctx, from)
+		if err != nil {
+			return 0, err
+		}
+
+		return chainNonce.Uint64(), nil
+	})
 }
 
 type rpcRequest struct {
@@ -194,11 +196,6 @@ func (c *Client) TransferNative(
 
 	from := crypto.PubkeyToAddress(privKey.PublicKey)
 
-	nonce, err = c.resolveNonce(ctx, from.Hex(), nonce)
-	if err != nil {
-		return "", err
-	}
-
 	if gasPrice == nil {
 		gasPrice, err = c.GetGasPrice(ctx)
 		if err != nil {
@@ -211,8 +208,14 @@ func (c *Client) TransferNative(
 		return "", err
 	}
 
+	lease, err := c.acquireNonce(ctx, from.Hex(), nonce)
+	if err != nil {
+		return "", err
+	}
+	defer lease.Rollback()
+
 	gasLimit := uint64(21000)
-	tx := types.NewTransaction(nonce.Uint64(), common.HexToAddress(to), amount, gasLimit, gasPrice, nil)
+	tx := types.NewTransaction(lease.Nonce(), common.HexToAddress(to), amount, gasLimit, gasPrice, nil)
 	signer := types.LatestSignerForChainID(chainID)
 	signedTx, err := types.SignTx(tx, signer, privKey)
 	if err != nil {
@@ -224,59 +227,75 @@ func (c *Client) TransferNative(
 		return "", err
 	}
 
-	return c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
+	txHash, err := c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
+
+	lease.Commit()
+
+	return txHash, err
 }
 
-func (c *Client) SignTx(
+func (c *Client) SignAndSendTransaction(
 	ctx context.Context,
 	rawHex string,
 	to string,
 	privKey string,
 	gasLimit uint64,
 	nonce *big.Int,
-) (*types.Transaction, error) {
+) (string, error) {
 	privECDSA, err := crypto.HexToECDSA(trim0x(privKey))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	from := crypto.PubkeyToAddress(privECDSA.PublicKey)
 
 	txBytes, err := hex.DecodeString(trim0x(rawHex))
 	if err != nil {
-		return nil, err
-	}
-
-	nonce, err = c.resolveNonce(ctx, from.Hex(), nonce)
-	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	gasPrice, err := c.GetGasPrice(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	chainID, err := c.GetChainID(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
+	lease, err := c.acquireNonce(ctx, from.Hex(), nonce)
+	if err != nil {
+		return "", err
+	}
+	defer lease.Rollback()
+
 	tx := types.NewTransaction(
-		nonce.Uint64(),
+		lease.Nonce(),
 		common.HexToAddress(to),
 		big.NewInt(0),
 		gasLimit,
 		gasPrice,
 		txBytes,
 	)
+
 	signer := types.LatestSignerForChainID(chainID)
 	signedTx, err := types.SignTx(tx, signer, privECDSA)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return signedTx, nil
+	rawBytes, err := signedTx.MarshalBinary()
+	if err != nil {
+		return "", err
+	}
+
+	txHash := signedTx.Hash().Hex()
+
+	_, sendErr := c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
+	lease.Commit()
+
+	return txHash, sendErr
 }
 
 func (c *Client) TransferToken(
@@ -321,11 +340,6 @@ func (c *Client) TransferToken(
 		}
 	}
 
-	nonce, err = c.resolveNonce(ctx, from.Hex(), nonce)
-	if err != nil {
-		return "", err
-	}
-
 	txBytes, err := hex.DecodeString(trim0x(data))
 	if err != nil {
 		return "", err
@@ -336,8 +350,14 @@ func (c *Client) TransferToken(
 		return "", err
 	}
 
+	lease, err := c.acquireNonce(ctx, from.Hex(), nonce)
+	if err != nil {
+		return "", err
+	}
+	defer lease.Rollback()
+
 	tx := types.NewTransaction(
-		nonce.Uint64(),
+		lease.Nonce(),
 		common.HexToAddress(tokenAddress),
 		big.NewInt(0),
 		gasLimit.Uint64(),
@@ -355,7 +375,11 @@ func (c *Client) TransferToken(
 		return "", err
 	}
 
-	return c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
+	txHash, err := c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
+
+	lease.Commit()
+
+	return txHash, err
 }
 
 func (c *Client) GetTransactionStatus(

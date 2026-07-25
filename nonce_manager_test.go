@@ -2,9 +2,23 @@ package ethlib
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 )
+
+func acquireCommit(t *testing.T, nm *NonceManager, addr string, fetch func(context.Context) (uint64, error)) uint64 {
+	t.Helper()
+
+	lease, err := nm.Acquire(context.Background(), addr, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := lease.Nonce()
+	lease.Commit()
+
+	return nonce
+}
 
 func TestNonceManagerNoDuplicatesUnderConcurrency(t *testing.T) {
 	nm := NewNonceManager()
@@ -21,11 +35,15 @@ func TestNonceManagerNoDuplicatesUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			got, err := nm.Next(context.Background(), addr, fetch)
+
+			lease, err := nm.Acquire(context.Background(), addr, fetch)
 			if err != nil {
 				t.Error(err)
 				return
 			}
+			got := lease.Nonce()
+			lease.Commit()
+
 			mu.Lock()
 			seen[got]++
 			mu.Unlock()
@@ -49,19 +67,112 @@ func TestNonceManagerNoDuplicatesUnderConcurrency(t *testing.T) {
 	}
 }
 
+func TestNonceManagerLeaseSerializesSameAddress(t *testing.T) {
+	nm := NewNonceManager()
+	const addr = "0xserial"
+	fetch := func(ctx context.Context) (uint64, error) { return 0, nil }
+
+	first, err := nm.Acquire(context.Background(), addr, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Nonce() != 0 {
+		t.Fatalf("expected nonce 0, got %d", first.Nonce())
+	}
+
+	secondStarted := make(chan struct{})
+	secondNonce := make(chan uint64, 1)
+	go func() {
+		close(secondStarted)
+		lease, err := nm.Acquire(context.Background(), addr, fetch)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		secondNonce <- lease.Nonce()
+		lease.Commit()
+	}()
+
+	<-secondStarted
+	select {
+	case n := <-secondNonce:
+		t.Fatalf("second Acquire must block until the first lease is released, got %d", n)
+	default:
+	}
+
+	first.Commit()
+
+	if got := <-secondNonce; got != 1 {
+		t.Fatalf("expected nonce 1 after commit, got %d", got)
+	}
+}
+
+func TestNonceManagerRollbackReusesNonce(t *testing.T) {
+	nm := NewNonceManager()
+	const addr = "0xrollback"
+	fetch := func(ctx context.Context) (uint64, error) { return 9, nil }
+
+	lease, err := nm.Acquire(context.Background(), addr, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.Nonce() != 9 {
+		t.Fatalf("expected nonce 9, got %d", lease.Nonce())
+	}
+	lease.Rollback()
+
+	if got := acquireCommit(t, nm, addr, fetch); got != 9 {
+		t.Fatalf("expected the rolled back nonce 9 to be reused, got %d", got)
+	}
+	if got := acquireCommit(t, nm, addr, fetch); got != 10 {
+		t.Fatalf("expected 10 after commit, got %d", got)
+	}
+}
+
+func TestNonceLeaseCommitAndRollbackAreIdempotent(t *testing.T) {
+	nm := NewNonceManager()
+	const addr = "0xidem"
+	fetch := func(ctx context.Context) (uint64, error) { return 0, nil }
+
+	lease, err := nm.Acquire(context.Background(), addr, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Commit()
+	lease.Commit()
+	lease.Rollback()
+
+	if got := acquireCommit(t, nm, addr, fetch); got != 1 {
+		t.Fatalf("expected 1, got %d", got)
+	}
+}
+
+func TestNonceManagerSeedFailureReleasesLock(t *testing.T) {
+	nm := NewNonceManager()
+	const addr = "0xseedfail"
+
+	failing := func(ctx context.Context) (uint64, error) { return 0, errors.New("rpc down") }
+	if _, err := nm.Acquire(context.Background(), addr, failing); err == nil {
+		t.Fatal("expected seed error")
+	}
+
+	if got := acquireCommit(t, nm, addr, func(ctx context.Context) (uint64, error) { return 3, nil }); got != 3 {
+		t.Fatalf("expected 3 after successful seed, got %d", got)
+	}
+}
+
 func TestNonceManagerCaseInsensitiveAndReset(t *testing.T) {
 	nm := NewNonceManager()
 	fetch := func(ctx context.Context) (uint64, error) { return 0, nil }
 
-	a, _ := nm.Next(context.Background(), "0xAbC", fetch)
-	b, _ := nm.Next(context.Background(), "0xabc", fetch)
+	a := acquireCommit(t, nm, "0xAbC", fetch)
+	b := acquireCommit(t, nm, "0xabc", fetch)
 	if a != 0 || b != 1 {
 		t.Fatalf("case-insensitive counter broken: a=%d b=%d", a, b)
 	}
 
 	nm.Reset("0xABC")
-	c, _ := nm.Next(context.Background(), "0xabc", fetch)
-	if c != 0 {
+	if c := acquireCommit(t, nm, "0xabc", fetch); c != 0 {
 		t.Fatalf("reset failed: expected 0, got %d", c)
 	}
 }
@@ -77,11 +188,7 @@ func TestNonceManagerSeedsOncePerAddress(t *testing.T) {
 	}
 
 	for want := uint64(7); want < 7+5; want++ {
-		got, err := nm.Next(context.Background(), addr, fetch)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != want {
+		if got := acquireCommit(t, nm, addr, fetch); got != want {
 			t.Fatalf("expected %d, got %d", want, got)
 		}
 	}
@@ -90,11 +197,7 @@ func TestNonceManagerSeedsOncePerAddress(t *testing.T) {
 	}
 
 	nm.Reset(addr)
-	got, err := nm.Next(context.Background(), addr, fetch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != 7 {
+	if got := acquireCommit(t, nm, addr, fetch); got != 7 {
 		t.Fatalf("expected re-seed to 7 after reset, got %d", got)
 	}
 	if fetchCount != 2 {
@@ -106,11 +209,37 @@ func TestNonceManagerDoesNotFollowChainWithoutReset(t *testing.T) {
 	nm := NewNonceManager()
 	const addr = "0xdead"
 
-	_, _ = nm.Next(context.Background(), addr, func(ctx context.Context) (uint64, error) { return 0, nil })
-	_, _ = nm.Next(context.Background(), addr, func(ctx context.Context) (uint64, error) { return 0, nil })
+	_ = acquireCommit(t, nm, addr, func(ctx context.Context) (uint64, error) { return 0, nil })
+	_ = acquireCommit(t, nm, addr, func(ctx context.Context) (uint64, error) { return 0, nil })
 
-	got, _ := nm.Next(context.Background(), addr, func(ctx context.Context) (uint64, error) { return 10, nil })
+	got := acquireCommit(t, nm, addr, func(ctx context.Context) (uint64, error) { return 10, nil })
 	if got != 2 {
 		t.Fatalf("expected local counter 2 (chain ignored until Reset), got %d", got)
+	}
+}
+
+func TestNonceManagerDifferentAddressesDoNotBlock(t *testing.T) {
+	nm := NewNonceManager()
+	fetch := func(ctx context.Context) (uint64, error) { return 0, nil }
+
+	held, err := nm.Acquire(context.Background(), "0xaaa", fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Commit()
+
+	done := make(chan uint64, 1)
+	go func() {
+		lease, err := nm.Acquire(context.Background(), "0xbbb", fetch)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		done <- lease.Nonce()
+		lease.Commit()
+	}()
+
+	if got := <-done; got != 0 {
+		t.Fatalf("expected nonce 0 for the other address, got %d", got)
 	}
 }
