@@ -103,6 +103,7 @@ func TestSignAndSendTransactionBroadcastsNoncesInOrder(t *testing.T) {
 
 	client := New(server.URL, "", WithNonceManager(NewNonceManager()))
 
+	gasLimit := uint64(21000)
 	var wg sync.WaitGroup
 	for i := 0; i < senders; i++ {
 		wg.Add(1)
@@ -114,7 +115,8 @@ func TestSignAndSendTransactionBroadcastsNoncesInOrder(t *testing.T) {
 				"0xabcdef",
 				"0x000000000000000000000000000000000000dEaD",
 				privateKey,
-				21000,
+				&gasLimit,
+				nil,
 				nil,
 			); err != nil {
 				t.Errorf("sign and send: %v", err)
@@ -179,12 +181,14 @@ func TestSignAndSendTransactionReturnsHashOnSendFailure(t *testing.T) {
 	nm := NewNonceManager()
 	client := New(server.URL, "", WithNonceManager(nm))
 
+	gasLimit := uint64(21000)
 	txHash, err := client.SignAndSendTransaction(
 		context.Background(),
 		"0xabcdef",
 		"0x000000000000000000000000000000000000dEaD",
 		privateKey,
-		21000,
+		&gasLimit,
+		nil,
 		nil,
 	)
 	if err == nil {
@@ -197,12 +201,14 @@ func TestSignAndSendTransactionReturnsHashOnSendFailure(t *testing.T) {
 		t.Fatalf("expected exactly 1 broadcast attempt, got %d", callCount)
 	}
 
+	gasLimit = uint64(21000)
 	next, err := client.SignAndSendTransaction(
 		context.Background(),
 		"0xabcdef",
 		"0x000000000000000000000000000000000000dEaD",
 		privateKey,
-		21000,
+		&gasLimit,
+		nil,
 		nil,
 	)
 	if err == nil {

@@ -239,7 +239,8 @@ func (c *Client) SignAndSendTransaction(
 	rawHex string,
 	to string,
 	privKey string,
-	gasLimit uint64,
+	gasLimit *uint64,
+	gasPrice *big.Int,
 	nonce *big.Int,
 ) (string, error) {
 	privECDSA, err := crypto.HexToECDSA(trim0x(privKey))
@@ -254,9 +255,26 @@ func (c *Client) SignAndSendTransaction(
 		return "", err
 	}
 
-	gasPrice, err := c.GetGasPrice(ctx)
-	if err != nil {
-		return "", err
+	var gasLimitUint64 uint64
+	if gasLimit == nil {
+		gasLimitInt, err := c.EstimateGas(ctx, map[string]interface{}{
+			"to":   to,
+			"data": txBytes,
+		})
+		if err != nil {
+			return "", err
+		}
+
+		gasLimitUint64 = gasLimitInt.Uint64()
+	} else {
+		gasLimitUint64 = *gasLimit
+	}
+
+	if gasPrice == nil {
+		gasPrice, err = c.GetGasPrice(ctx)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	chainID, err := c.GetChainID(ctx)
@@ -274,7 +292,7 @@ func (c *Client) SignAndSendTransaction(
 		lease.Nonce(),
 		common.HexToAddress(to),
 		big.NewInt(0),
-		gasLimit,
+		gasLimitUint64,
 		gasPrice,
 		txBytes,
 	)
