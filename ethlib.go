@@ -311,9 +311,33 @@ func (c *Client) SignAndSendTransaction(
 	txHash := signedTx.Hash().Hex()
 
 	_, sendErr := c.SendRawTransaction(ctx, hex.EncodeToString(rawBytes))
-	lease.Commit()
+	if sendErr == nil {
+		lease.Commit()
 
-	return txHash, sendErr
+		return txHash, nil
+	}
+
+	switch classifyBroadcastError(sendErr) {
+	case broadcastRejected:
+		lease.Rollback()
+
+		return txHash, fmt.Errorf("%w: %v", ErrBroadcastRejected, sendErr)
+	case broadcastNonceTooLow:
+		lease.Commit()
+		if c.nonceManager != nil {
+			c.nonceManager.Reset(from.Hex())
+		}
+
+		return txHash, fmt.Errorf("%w: %v", ErrNonceTooLow, sendErr)
+	case broadcastAccepted:
+		lease.Commit()
+
+		return txHash, sendErr
+	default:
+		lease.Commit()
+
+		return txHash, fmt.Errorf("%w: %v", ErrBroadcastUncertain, sendErr)
+	}
 }
 
 func (c *Client) TransferToken(

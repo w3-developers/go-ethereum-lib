@@ -125,7 +125,7 @@ func (c *Client) rpcCall(ctx context.Context, method string, params []interface{
 	}
 
 	if rpcResp.Error != nil {
-		return fmt.Errorf("rpc error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
+		return &RPCError{Code: rpcResp.Error.Code, Message: rpcResp.Error.Message}
 	}
 
 	if out == nil {
